@@ -1,6 +1,7 @@
-use std::{fmt, io};
+use std::fmt;
 
 pub const MAC_LENGTH: usize = 6;
+pub const MAC_BROADCAST: [u8; MAC_LENGTH] = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,16 +14,16 @@ impl Default for MacAddress {
 }
 
 impl fmt::Display for MacAddress {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{:X?}:{:X?}:{:X?}:{:X?}:{:X?}:{:X?}",
-            self[0], self[1], self[2], self[3], self[4], self[5]
+            self.0[0], self.0[1], self.0[2], self.0[3], self.0[4], self.0[5]
         )
     }
 }
 
-#[Derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
 pub enum FrameType {
     Ipv4 = 0x0800,
@@ -34,7 +35,7 @@ pub enum FrameType {
 }
 
 impl fmt::Display for FrameType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}",
@@ -50,10 +51,11 @@ impl fmt::Display for FrameType {
     }
 }
 
-#[Derive(Debug, Clone, Copy, Eq)]
+#[derive(Debug, Clone)]
 #[repr(C)]
-pub struct EthernetHeader {
+pub struct EthernetPacket {
     pub dst_mac: MacAddress,
     pub src_mac: MacAddress,
     pub frame_type: FrameType,
+    pub data: Vec<u8>,
 }
