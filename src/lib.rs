@@ -1,5 +1,7 @@
 pub mod device;
 pub mod ethernet;
+pub mod ipv4;
+pub mod packet;
 
 mod tests {
     #[test]
