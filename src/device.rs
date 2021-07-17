@@ -104,7 +104,7 @@ pub mod linux {
         Ok(())
     }
 
-    const RW_BUF_SIZE: usize = 2 << 10;
+    pub const RW_BUF_SIZE: usize = 2 << 10;
 
     pub fn poll_tap(v: &mut [u8; RW_BUF_SIZE], size: usize) {
         let mut epoll = Epoll::new(2); // ここの引数はテキトー
@@ -148,5 +148,8 @@ pub mod linux {
             ) as isize
         }
     }
-    pub fn close_tap() {}
+
+    pub fn close_tap() {
+        unsafe { libc::close(TAP_FILE.get().unwrap().as_raw_fd()) };
+    }
 }
