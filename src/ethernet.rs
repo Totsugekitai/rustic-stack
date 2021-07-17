@@ -55,6 +55,7 @@ impl fmt::Display for MacAddress {
 pub enum PacketType {
     Ipv4 = 0x0800,
     Arp = 0x0806,
+    Rarp = 0x8035,
     AppleTalk = 0x809b,
     Ieee802 = 0x8100,
     Ipx = 0x8137,
@@ -69,11 +70,11 @@ impl fmt::Display for PacketType {
             match self {
                 PacketType::Ipv4 => "IPv4",
                 PacketType::Arp => "ARP",
+                PacketType::Rarp => "RARP",
                 PacketType::AppleTalk => "AppleTalk",
                 PacketType::Ieee802 => "IEEE802",
                 PacketType::Ipx => "IPX",
                 PacketType::Ipv6 => "IPv6",
-                _ => "Unknown",
             }
         )
     }
@@ -113,7 +114,8 @@ pub fn handle(packet: &EthernetPacket) {
     match packet.get_type() {
         PacketType::Ipv4 => {
             let ipv4 = packet.payload();
-            ipv4::handle(ipv4);
+            let ipv4: Ipv4Packet = unsafe { std::ptr::read(ipv4.as_ptr() as *const _) };
+            ipv4::handle(&ipv4);
         }
         _ => (),
     }
