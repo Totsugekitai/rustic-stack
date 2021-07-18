@@ -1,4 +1,6 @@
 pub mod linux {
+    use crate::ethernet::MacAddress;
+    use ifstructs::ifreq;
     use libc;
     use once_cell::sync::OnceCell;
     use std::fs::{read_dir, read_link, read_to_string, File};
@@ -93,27 +95,53 @@ pub mod linux {
         }
     }
 
-    const IFNAMSIZ: usize = 16;
-
-    #[repr(C)]
-    struct Ifreq {
-        ifr_name: [u8; IFNAMSIZ],
-        ifr_ifru: [u8; IFNAMSIZ],
+    #[derive(Debug)]
+    pub struct Tap {
+        fd: RawFd,
+        name: String,
+        ip_address: [u8; 4],
+        mac_address: MacAddress,
     }
 
-    static TAP_FILE: OnceCell<File> = OnceCell::new();
+    static TAP: OnceCell<Tap> = OnceCell::new();
 
-    pub fn open_tap() -> io::Result<()> {
-        let tap_path = Path::new("/dev/net/tun");
-        let tap_file = File::open(tap_path)?;
+    impl Tap {
+        fn new() -> Self {
+            Tap {
+                fd: -1,
+                name: String::new(),
+                ip_address: [0; 4],
+                mac_address: MacAddress::default(),
+            }
+        }
 
-        TAP_FILE.set(tap_file).unwrap();
-        Ok(())
+        pub fn register(tap_name: &str) -> io::Result<()> {
+            let tap_file = File::open(Path::new("/dev/net/tun"))?;
+
+            let mut ifr = ifreq::from_name(tap_name)?;
+            ifr.set_flags((libc::IFF_TAP | libc::IFF_NO_PI) as libc::c_short);
+
+            let tap_fd = tap_file.as_raw_fd();
+            let err = unsafe { libc::ioctl(tap_fd, 202, &ifr as *const ifreq) };
+            if err < 0 {
+                panic!("TAP allocation is failed");
+            }
+
+            let tap_struct = Tap {
+                fd: tap_fd,
+                name: String::from(tap_name),
+                ip_address: [192, 0, 2, 1],
+                mac_address: MacAddress::from_str("00:00:5e:00:53:FF").unwrap(),
+            };
+            TAP.set(tap_struct).unwrap();
+
+            Ok(())
+        }
     }
 
     pub const RW_BUF_SIZE: usize = 2 << 10;
 
-    pub fn poll_tap(v: &mut [u8; RW_BUF_SIZE], size: usize) {
+    pub fn poll(v: &mut [u8; RW_BUF_SIZE], size: usize) {
         let mut epoll = Epoll::new(2); // ここの引数はテキトー
 
         loop {
@@ -139,7 +167,7 @@ pub mod linux {
     pub fn read_tap(buf: &mut [u8; RW_BUF_SIZE], size: usize) -> isize {
         unsafe {
             libc::read(
-                TAP_FILE.get().unwrap().as_raw_fd(),
+                TAP.get().unwrap().fd,
                 buf as *mut _ as *mut libc::c_void,
                 size as _,
             ) as isize
@@ -149,7 +177,7 @@ pub mod linux {
     pub fn write_tap(data: &mut [u8; RW_BUF_SIZE], size: usize) -> isize {
         unsafe {
             libc::write(
-                TAP_FILE.get().unwrap().as_raw_fd(),
+                TAP.get().unwrap().fd,
                 data as *mut _ as *mut libc::c_void,
                 size as _,
             ) as isize
@@ -157,6 +185,6 @@ pub mod linux {
     }
 
     pub fn close_tap() {
-        unsafe { libc::close(TAP_FILE.get().unwrap().as_raw_fd()) };
+        unsafe { libc::close(TAP.get().unwrap().fd) };
     }
 }

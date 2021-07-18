@@ -83,19 +83,19 @@ impl fmt::Display for PacketType {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct EthernetPacket {
-    dst_mac: MacAddress,
-    src_mac: MacAddress,
+    dst_mac_address: MacAddress,
+    src_mac_address: MacAddress,
     packet_type: PacketType,
     payload: Vec<u8>,
 }
 
 impl EthernetPacket {
-    pub fn get_dst_mac(&self) -> &MacAddress {
-        &self.dst_mac
+    pub fn get_dst_mac_address(&self) -> &MacAddress {
+        &self.dst_mac_address
     }
 
-    pub fn get_src_mac(&self) -> &MacAddress {
-        &self.src_mac
+    pub fn get_src_mac_address(&self) -> &MacAddress {
+        &self.src_mac_address
     }
 
     pub fn get_type(&self) -> PacketType {
