@@ -17,8 +17,6 @@ pub mod linux {
         let mut address_vec = Vec::new();
         for entry in entries {
             let entry = entry?;
-            // let metadata = entry.metadata()?;
-            // let path = entry.path().display().to_string();
 
             if let Ok(symlink) = read_link(entry.path()) {
                 let path = symlink.as_path();
@@ -95,11 +93,20 @@ pub mod linux {
         }
     }
 
+    const IFNAMSIZ: usize = 16;
+
+    #[repr(C)]
+    struct Ifreq {
+        ifr_name: [u8; IFNAMSIZ],
+        ifr_ifru: [u8; IFNAMSIZ],
+    }
+
     static TAP_FILE: OnceCell<File> = OnceCell::new();
 
     pub fn open_tap() -> io::Result<()> {
-        let tap_path = Path::new("/dev/net/tap");
+        let tap_path = Path::new("/dev/net/tun");
         let tap_file = File::open(tap_path)?;
+
         TAP_FILE.set(tap_file).unwrap();
         Ok(())
     }

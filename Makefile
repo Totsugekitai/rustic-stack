@@ -18,9 +18,9 @@ MAKEFLAGS += -r
 # MAKEFILE_DIR is directory Makefile located in
 MAKEFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
+### Makefile_template end ###
+
 gen-tap:
 > sudo ip tuntap add mode tap user $(USER) name tap0
 > sudo ip addr add 192.0.2.1/24 dev tap0
 > sudo ip link set tap0 up
-
-### Makefile_template end ###
