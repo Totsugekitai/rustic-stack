@@ -3,11 +3,13 @@ pub mod linux {
     use crate::ipv4::Ipv4Address;
     use ifstructs::ifreq;
     use libc;
+    use std::collections::HashMap;
     use std::fs::{read_dir, read_link, read_to_string, File};
     use std::io;
+    use std::ops;
     use std::os::unix::io::{AsRawFd, RawFd};
     use std::path::Path;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Mutex;
 
     fn read_mac_address(address_file: &Path) -> Result<String, io::Error> {
         let mac_address = read_to_string(address_file)?;
@@ -32,29 +34,89 @@ pub mod linux {
     }
 
     lazy_static! {
-        pub static ref NET_DEVICES: Arc<Vec<Mutex<NetDevice>>> = Arc::new(Vec::new());
+        pub static ref NET_DEVICES: Mutex<HashMap<String, NetDevice>> = Mutex::new(HashMap::new());
     }
 
     pub const HARDWARE_ADDRESS_LENGTH: usize = 16;
 
+    pub struct NetDeviceError {
+        kind: NetDeviceErrorKind,
+    }
+
+    impl NetDeviceError {
+        pub fn new(kind: NetDeviceErrorKind) -> Self {
+            Self { kind }
+        }
+    }
+
+    pub enum NetDeviceErrorKind {
+        AlreadyUp,
+        AlreadyDown,
+        OpenError,
+        CloseError,
+        TransmitError,
+        DataSizeTooBig,
+    }
+
     #[repr(C)]
     pub struct NetDevice {
-        name: String,
-        device_type: NetDeviceType,
-        mtu: u16,
-        flags: u16,
-        header_length: u16,
-        address_length: u16,
-        hwaddr: [u8; HARDWARE_ADDRESS_LENGTH],
-        pb: NetDeviceAddress,
-        ops: NetDeviceOps,
+        pub name: String,
+        pub device_type: NetDeviceType,
+        pub mtu: u16,
+        pub flags: u16,
+        pub header_length: u16,
+        pub address_length: u16,
+        pub hwaddr: [u8; HARDWARE_ADDRESS_LENGTH],
+        pub pb: NetDeviceAddress,
+        pub ops: NetDeviceOps,
     }
 
     #[repr(u16)]
     pub enum NetDeviceType {
         Null = 0x0000,
-        LoopBack = 0x0001,
+        Loopback = 0x0001,
         Ethernet = 0x0002,
+    }
+
+    #[repr(u16)]
+    pub enum NetDeviceFlag {
+        Up = 0x0001,
+        Loopback = 0x0010,
+        Broadcast = 0x0020,
+        P2P = 0x0040,
+        NeedArp = 0x0100,
+    }
+
+    impl ops::BitAnd<u16> for NetDeviceFlag {
+        type Output = u16;
+
+        fn bitand(self, word: u16) -> u16 {
+            word & (self as u16)
+        }
+    }
+
+    impl ops::BitAnd<NetDeviceFlag> for u16 {
+        type Output = u16;
+
+        fn bitand(self, flag: NetDeviceFlag) -> u16 {
+            flag & (self as u16)
+        }
+    }
+
+    impl ops::BitOr<u16> for NetDeviceFlag {
+        type Output = u16;
+
+        fn bitor(self, word: u16) -> u16 {
+            word | (self as u16)
+        }
+    }
+
+    impl ops::BitOr<NetDeviceFlag> for u16 {
+        type Output = u16;
+
+        fn bitor(self, flag: NetDeviceFlag) -> u16 {
+            flag | (self as u16)
+        }
     }
 
     pub enum NetDeviceAddress {
@@ -63,14 +125,76 @@ pub mod linux {
     }
 
     pub struct NetDeviceOps {
-        open: fn(&NetDevice) -> isize,
-        close: fn(&NetDevice) -> isize,
-        transmit: fn(&NetDevice, u16, *const u8, usize, *const u8) -> isize,
-        poll: fn(&NetDevice) -> isize,
+        pub open: fn(&NetDevice) -> isize,
+        pub close: fn(&NetDevice) -> isize,
+        pub transmit: fn(&NetDevice, u16, *const u8, usize, *const u8) -> isize,
+        pub poll: fn(&NetDevice) -> isize,
     }
 
     impl NetDevice {
-        pub fn register(dev: NetDevice) {}
+        fn is_up(&self) -> bool {
+            self.flags & NetDeviceFlag::Up > 0
+        }
+
+        pub fn register(dev: NetDevice) {
+            let mut net_devices = NET_DEVICES.lock().unwrap();
+            net_devices.insert(String::from(&dev.name), dev);
+        }
+
+        pub fn open(&mut self) -> Result<(), NetDeviceError> {
+            if self.is_up() {
+                return Err(NetDeviceError::new(NetDeviceErrorKind::AlreadyUp));
+            }
+            if (self.ops.open)(&self) == -1 {
+                eprintln!("[error] device={}", self.name);
+                return Err(NetDeviceError::new(NetDeviceErrorKind::OpenError));
+            }
+
+            self.flags = self.flags | NetDeviceFlag::Up;
+            Ok(())
+        }
+
+        pub fn close(&mut self) -> Result<(), NetDeviceError> {
+            if !self.is_up() {
+                return Err(NetDeviceError::new(NetDeviceErrorKind::AlreadyDown));
+            }
+            if (self.ops.close)(&self) == -1 {
+                eprintln!("[error] device={}", self.name);
+                return Err(NetDeviceError::new(NetDeviceErrorKind::CloseError));
+            }
+
+            self.flags = self.flags & !(NetDeviceFlag::Up as u16);
+            Ok(())
+        }
+
+        pub fn output(
+            &self,
+            net_device_type: NetDeviceType,
+            data: *const u8,
+            size: usize,
+            dst: *const u8,
+        ) -> Result<(), NetDeviceError> {
+            if !self.is_up() {
+                eprintln!("not opened DEV={}", self.name);
+                return Err(NetDeviceError::new(NetDeviceErrorKind::OpenError));
+            }
+
+            if size > self.mtu as usize {
+                eprintln!(
+                    "data size too big DEV={} MTU={} SIZE={}",
+                    self.name, self.mtu, size
+                );
+                return Err(NetDeviceError::new(NetDeviceErrorKind::DataSizeTooBig));
+            }
+
+            if (self.ops.transmit)(self, net_device_type as u16, data, size, dst) == -1 {
+                eprintln!("data transmit failed DEV={} SIZE={}", self.name, size);
+                return Err(NetDeviceError::new(NetDeviceErrorKind::TransmitError));
+            }
+            Ok(())
+        }
+
+        pub fn input_handler() {}
     }
 
     #[derive(Debug)]
@@ -135,6 +259,4 @@ pub mod linux {
             self.write(data, size)
         }
     }
-
-    // static TAP: OnceCell<Tap> = OnceCell::new();
 }
