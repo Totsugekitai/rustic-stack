@@ -3,11 +3,11 @@ pub mod linux {
     use crate::ipv4::Ipv4Address;
     use ifstructs::ifreq;
     use libc;
-    // use once_cell::sync::OnceCell;
     use std::fs::{read_dir, read_link, read_to_string, File};
     use std::io;
     use std::os::unix::io::{AsRawFd, RawFd};
     use std::path::Path;
+    use std::sync::{Arc, Mutex};
 
     fn read_mac_address(address_file: &Path) -> Result<String, io::Error> {
         let mac_address = read_to_string(address_file)?;
@@ -31,11 +31,14 @@ pub mod linux {
         Ok(address_vec)
     }
 
+    lazy_static! {
+        pub static ref NET_DEVICES: Arc<Vec<Mutex<NetDevice>>> = Arc::new(Vec::new());
+    }
+
     pub const HARDWARE_ADDRESS_LENGTH: usize = 16;
 
     #[repr(C)]
     pub struct NetDevice {
-        next: *const NetDevice,
         name: String,
         device_type: NetDeviceType,
         mtu: u16,
@@ -64,6 +67,10 @@ pub mod linux {
         close: fn(&NetDevice) -> isize,
         transmit: fn(&NetDevice, u16, *const u8, usize, *const u8) -> isize,
         poll: fn(&NetDevice) -> isize,
+    }
+
+    impl NetDevice {
+        pub fn register(dev: NetDevice) {}
     }
 
     #[derive(Debug)]
