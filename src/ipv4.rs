@@ -1,17 +1,34 @@
+use std::convert::TryInto;
 use std::fmt;
+use std::num::ParseIntError;
 
-pub struct Ipv4(u32);
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ipv4Address([u8; IPV4_LENGTH]);
 
-impl fmt::Display for Ipv4 {
+pub const IPV4_LENGTH: usize = 4;
+
+impl fmt::Display for Ipv4Address {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}.{}.{}.{}",
-            self.0 >> 24,
-            (self.0 >> 16) & 0xff,
-            (self.0 >> 8) & 0xff,
-            self.0 & 0xff
-        )
+        write!(f, "{}.{}.{}.{}", self.0[3], self.0[2], self.0[1], self.0[0],)
+    }
+}
+
+impl Ipv4Address {
+    pub fn from_str(address_str: &str) -> Result<Self, ParseIntError> {
+        let ipv4_address: [u8; IPV4_LENGTH] = address_str
+            .split(':')
+            .map(|s| u8::from_str_radix(s, 16))
+            .collect::<Result<Vec<u8>, ParseIntError>>()?
+            .try_into()
+            .unwrap_or_else(|v: Vec<u8>| {
+                panic!(
+                    "Expected a Vec of length {}, but it was {}",
+                    IPV4_LENGTH,
+                    v.len()
+                )
+            });
+        Ok(Ipv4Address(ipv4_address))
     }
 }
 
@@ -78,12 +95,30 @@ impl Ipv4Packet {
         }
     }
 
-    pub fn src_address(&self) -> Ipv4 {
-        Ipv4(self.src_ip_address)
+    pub fn src_address(&self) -> Ipv4Address {
+        let ipv4_address_0 = ((self.src_ip_address >> 0) & 0xff) as u8;
+        let ipv4_address_1 = ((self.src_ip_address >> 8) & 0xff) as u8;
+        let ipv4_address_2 = ((self.src_ip_address >> 16) & 0xff) as u8;
+        let ipv4_address_3 = ((self.src_ip_address >> 24) & 0xff) as u8;
+        Ipv4Address([
+            ipv4_address_0,
+            ipv4_address_1,
+            ipv4_address_2,
+            ipv4_address_3,
+        ])
     }
 
-    pub fn dst_address(&self) -> Ipv4 {
-        Ipv4(self.dst_ip_address)
+    pub fn dst_address(&self) -> Ipv4Address {
+        let ipv4_address_0 = ((self.dst_ip_address >> 0) & 0xff) as u8;
+        let ipv4_address_1 = ((self.dst_ip_address >> 8) & 0xff) as u8;
+        let ipv4_address_2 = ((self.dst_ip_address >> 16) & 0xff) as u8;
+        let ipv4_address_3 = ((self.dst_ip_address >> 24) & 0xff) as u8;
+        Ipv4Address([
+            ipv4_address_0,
+            ipv4_address_1,
+            ipv4_address_2,
+            ipv4_address_3,
+        ])
     }
 }
 

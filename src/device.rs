@@ -1,5 +1,6 @@
 pub mod linux {
     use crate::ethernet::MacAddress;
+    use crate::ipv4::Ipv4Address;
     use ifstructs::ifreq;
     use libc;
     // use once_cell::sync::OnceCell;
@@ -30,80 +31,48 @@ pub mod linux {
         Ok(address_vec)
     }
 
-    // struct Epoll {
-    //     fd: RawFd,
-    //     events: Vec<libc::epoll_event>,
-    // }
+    pub const HARDWARE_ADDRESS_LENGTH: usize = 16;
 
-    // enum EpollEventType {
-    //     In,
-    //     Out,
-    // }
+    #[repr(C)]
+    pub struct NetDevice {
+        next: *const NetDevice,
+        name: String,
+        device_type: NetDeviceType,
+        mtu: u16,
+        flags: u16,
+        header_length: u16,
+        address_length: u16,
+        hwaddr: [u8; HARDWARE_ADDRESS_LENGTH],
+        pb: NetDeviceAddress,
+        ops: NetDeviceOps,
+    }
 
-    // impl Epoll {
-    //     fn new(max_event: usize) -> Self {
-    //         let fd = unsafe { libc::epoll_create1(libc::EPOLL_CLOEXEC) };
-    //         let event: libc::epoll_event = unsafe { std::mem::zeroed() };
-    //         let events = vec![event; max_event];
-    //         Epoll { fd, events }
-    //     }
+    #[repr(u16)]
+    pub enum NetDeviceType {
+        Null = 0x0000,
+        LoopBack = 0x0001,
+        Ethernet = 0x0002,
+    }
 
-    //     fn add_event(&self, fd: RawFd, op: EpollEventType) {
-    //         let mut event: libc::epoll_event = unsafe { std::mem::zeroed() };
-    //         event.u64 = fd as u64;
-    //         event.events = match op {
-    //             EpollEventType::In => libc::EPOLLIN as u32,
-    //             EpollEventType::Out => libc::EPOLLOUT as u32,
-    //         };
+    pub enum NetDeviceAddress {
+        Peer([u8; HARDWARE_ADDRESS_LENGTH]),
+        Broadcast([u8; HARDWARE_ADDRESS_LENGTH]),
+    }
 
-    //         unsafe { libc::epoll_ctl(self.fd, libc::EPOLL_CTL_ADD, fd, &mut event as *mut _) };
-    //     }
-
-    //     fn mod_event(&self, fd: RawFd, op: EpollEventType) {
-    //         let mut event: libc::epoll_event = unsafe { std::mem::zeroed() };
-    //         event.u64 = fd as u64;
-    //         event.events = match op {
-    //             EpollEventType::In => libc::EPOLLIN as u32,
-    //             EpollEventType::Out => libc::EPOLLOUT as u32,
-    //         };
-
-    //         unsafe { libc::epoll_ctl(self.fd, libc::EPOLL_CTL_MOD, fd, &mut event as *mut _) };
-    //     }
-
-    //     fn del_event(&self, fd: RawFd) {
-    //         unsafe {
-    //             libc::epoll_ctl(
-    //                 self.fd,
-    //                 libc::EPOLL_CTL_DEL,
-    //                 fd,
-    //                 std::ptr::null_mut() as *mut _,
-    //             )
-    //         };
-    //     }
-
-    //     fn wait(&mut self) -> usize {
-    //         let nfd = unsafe {
-    //             libc::epoll_wait(
-    //                 self.fd,
-    //                 self.events.as_mut_ptr(),
-    //                 self.events.len() as i32,
-    //                 -1, // no timeout
-    //             )
-    //         };
-
-    //         nfd as usize
-    //     }
-    // }
+    pub struct NetDeviceOps {
+        open: fn(&NetDevice) -> isize,
+        close: fn(&NetDevice) -> isize,
+        transmit: fn(&NetDevice, u16, *const u8, usize, *const u8) -> isize,
+        poll: fn(&NetDevice) -> isize,
+    }
 
     #[derive(Debug)]
     pub struct Tap {
         fd: RawFd,
         name: String,
-        ip_address: [u8; 4],
+        ip_address: Ipv4Address,
         mac_address: MacAddress,
     }
-
-    // static TAP: OnceCell<Tap> = OnceCell::new();
 
     impl Tap {
         pub fn open(tap_name: &str) -> io::Result<Tap> {
@@ -121,7 +90,7 @@ pub mod linux {
             let tap = Tap {
                 fd: tap_fd,
                 name: String::from(tap_name),
-                ip_address: [192, 0, 2, 1],
+                ip_address: Ipv4Address::from_str("192.0.2.2").unwrap(),
                 mac_address: MacAddress::from_str("00:00:5e:00:53:FF").unwrap(),
             };
 
@@ -159,4 +128,6 @@ pub mod linux {
             self.write(data, size)
         }
     }
+
+    // static TAP: OnceCell<Tap> = OnceCell::new();
 }
