@@ -4,6 +4,7 @@ pub mod linux {
     use ifstructs::ifreq;
     use libc;
     use std::collections::HashMap;
+    use std::fmt;
     use std::fs::{read_dir, read_link, read_to_string, File};
     use std::io;
     use std::ops;
@@ -76,6 +77,17 @@ pub mod linux {
         Null = 0x0000,
         Loopback = 0x0001,
         Ethernet = 0x0002,
+    }
+
+    impl fmt::Display for NetDeviceType {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            let s = match self {
+                NetDeviceType::Null => "Null",
+                NetDeviceType::Loopback => "Loopback",
+                NetDeviceType::Ethernet => "Ethernet",
+            };
+            write!(f, "{}", s)
+        }
     }
 
     #[repr(u16)]
@@ -194,7 +206,17 @@ pub mod linux {
             Ok(())
         }
 
-        pub fn input_handler() {}
+        pub fn input_handler(&self, net_device_type: NetDeviceType, data: *const u8, size: usize) {
+            println!(
+                "DEV={} TYPE={} DATA_SIZE={}",
+                self.name, net_device_type, size
+            );
+        }
+
+        pub fn run() -> Result<(), NetDeviceError> {
+            let mut net_devices = NET_DEVICES.lock().unwrap().borrow_mut();
+            for (_name, dev) in net_devices {}
+        }
     }
 
     #[derive(Debug)]
