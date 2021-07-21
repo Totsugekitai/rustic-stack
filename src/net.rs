@@ -145,7 +145,7 @@ pub enum NetDeviceAddress {
 pub struct NetDeviceOps {
     pub open: fn(&NetDevice) -> isize,
     pub close: fn(&NetDevice) -> isize,
-    pub transmit: fn(&NetDevice, u16, *const u8, usize, *const u8) -> isize,
+    pub transmit: fn(&NetDevice, u16, *const u8, usize, *mut u8) -> isize,
     pub poll: fn(&NetDevice) -> isize,
 }
 
@@ -196,7 +196,7 @@ impl NetDevice {
         net_device_type: u16,
         data: *const u8,
         size: usize,
-        dst: *const u8,
+        dst: *mut u8,
     ) -> Result<(), NetDeviceError> {
         if !self.is_up() {
             eprintln!("not opened DEV={}", self.name);
