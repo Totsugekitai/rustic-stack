@@ -67,6 +67,13 @@ pub enum NetDeviceType {
     Ethernet = 0x0002,
 }
 
+#[repr(u16)]
+pub enum NetProtocolType {
+    Ip = 0x0800,
+    Arp = 0x0806,
+    Ipv6 = 0x86dd,
+}
+
 impl NetDeviceType {
     pub fn from_u16(u: u16) -> NetDeviceType {
         match u {
@@ -186,7 +193,7 @@ impl NetDevice {
 
     pub fn output(
         &self,
-        net_device_type: NetDeviceType,
+        net_device_type: u16,
         data: *const u8,
         size: usize,
         dst: *const u8,
@@ -204,7 +211,7 @@ impl NetDevice {
             return Err(NetDeviceError::new(NetDeviceErrorKind::DataSizeTooBig));
         }
 
-        if (self.ops.transmit)(self, net_device_type as u16, data, size, dst) == -1 {
+        if (self.ops.transmit)(self, net_device_type, data, size, dst) == -1 {
             eprintln!("data transmit failed DEV={} SIZE={}", self.name, size);
             return Err(NetDeviceError::new(NetDeviceErrorKind::TransmitError));
         }
@@ -220,17 +227,17 @@ impl NetDevice {
 }
 
 pub struct LockableNetDevices {
-    items: Arc<Mutex<Vec<NetDevice>>>,
+    pub items: Arc<Mutex<Vec<NetDevice>>>,
 }
 
 impl LockableNetDevices {
-    fn new() -> Self {
+    pub fn new() -> Self {
         LockableNetDevices {
             items: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
-    fn lock(&self) -> LockedNetDevices<'_> {
+    pub fn lock(&self) -> LockedNetDevices<'_> {
         LockedNetDevices {
             items: self.items.lock().unwrap(),
         }
@@ -238,7 +245,7 @@ impl LockableNetDevices {
 }
 
 pub struct LockedNetDevices<'a> {
-    items: MutexGuard<'a, Vec<NetDevice>>,
+    pub items: MutexGuard<'a, Vec<NetDevice>>,
 }
 
 impl<'a> LockedNetDevices<'a> {
