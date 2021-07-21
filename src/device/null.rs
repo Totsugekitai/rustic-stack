@@ -1,16 +1,14 @@
 use std::u16;
 
-use crate::net::{NetDevice, NetDeviceOps, NetDeviceType};
+use crate::net::{
+    NetDevice, NetDeviceAddress, NetDeviceOps, NetDeviceType, HARDWARE_ADDRESS_LENGTH,
+};
 
 const NULL_MTU: u16 = u16::MAX;
 
 pub struct Null();
 
 impl Null {
-    pub fn new() -> Self {
-        Null()
-    }
-
     pub fn transmit(
         dev: &NetDevice,
         net_device_type: u16,
@@ -27,16 +25,27 @@ impl Null {
         0
     }
 
-    pub fn setup(dev: &mut NetDevice) {
-        dev.device_type = NetDeviceType::Null;
-        dev.mtu = NULL_MTU;
-        dev.header_length = 0;
-        dev.address_length = 0;
-        dev.ops.transmit = Null::transmit;
-        dev.ops.open = NetDeviceOps::empty;
-        dev.ops.close = NetDeviceOps::empty;
-        dev.ops.poll = NetDeviceOps::empty;
+    pub fn new_device() -> NetDevice {
+        NetDevice {
+            name: String::from("null"),
+            device_type: NetDeviceType::Null,
+            mtu: NULL_MTU,
+            flags: 0,
+            header_length: 0,
+            address_length: 0,
+            hwaddr: [0; HARDWARE_ADDRESS_LENGTH],
+            pb: NetDeviceAddress::Peer([0; HARDWARE_ADDRESS_LENGTH]),
+            ops: NetDeviceOps {
+                transmit: Null::transmit,
+                open: NetDeviceOps::empty,
+                close: NetDeviceOps::empty,
+                poll: NetDeviceOps::empty,
+            },
+        }
     }
 
-    pub fn init() {}
+    pub fn init() {
+        let null_dev = Null::new_device();
+        NetDevice::register(null_dev);
+    }
 }
