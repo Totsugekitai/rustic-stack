@@ -2,10 +2,14 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use rustic_stack::device::loopback::Loopback;
-use rustic_stack::net::{net_run, net_shutdown, NetDeviceType, NetProtocolType, NET_DEVICES};
+use rustic_stack::net::{
+    net_init, net_run, net_shutdown, NetDeviceType, NetProtocolType, NET_DEVICES,
+};
 
 #[test]
 fn loopback() {
+    net_init();
+
     Loopback::init();
 
     let _ = net_run();
@@ -18,7 +22,7 @@ fn loopback() {
         {
             let mut net_devices = NET_DEVICES.lock();
             for dev in net_devices.items.iter_mut() {
-                if (dev.device_type & 0b11) == NetDeviceType::Loopback as u16 {
+                if NetDeviceType::from_u16(dev.device_type) == NetDeviceType::Loopback {
                     let r = dev.output(
                         NetDeviceType::Loopback as u16 & NetProtocolType::Ip as u16,
                         &test_data as *const [u8] as *const u8,
@@ -32,9 +36,10 @@ fn loopback() {
                                     panic!("loopback is invalid! VALUE={}", i);
                                 }
                             }
+                            println!("loopback device output");
                         }
                         Err(_) => {
-                            panic!("device output error");
+                            panic!("loopback device output error");
                         }
                     }
                 }

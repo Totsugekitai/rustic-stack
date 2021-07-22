@@ -2,6 +2,8 @@ use std::fmt;
 use std::ops;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use crate::ipv4;
+
 #[repr(u16)]
 pub enum NetProtocolType {
     Ip = 0x0800,
@@ -71,7 +73,7 @@ lazy_static! {
 }
 
 pub struct NetProtocolError {
-    _kind: NetProtocolErrorKind,
+    pub kind: NetProtocolErrorKind,
 }
 
 pub enum NetProtocolErrorKind {
@@ -88,13 +90,16 @@ pub struct NetProtocol {
 impl NetProtocol {
     pub fn register(
         protocol_type: u16,
-        handler: fn(*const u8, size: usize, dev: &mut NetDevice) -> *mut u8,
+        handler: fn(*const u8, usize, &mut NetDevice) -> *mut u8,
     ) -> Result<(), NetProtocolError> {
         {
             let mut protocols = PROTOCOLS.lock();
             for protocol in protocols.iter_mut() {
                 if protocol.protocol_type == protocol_type {
-                    panic!("protocol already registered TYPE={:04x}", protocol_type);
+                    eprintln!("protocol is already registered TYPE={:04x}", protocol_type);
+                    return Err(NetProtocolError {
+                        kind: NetProtocolErrorKind::AlreadyRegistered,
+                    });
                 }
             }
             let protocol = NetProtocol {
@@ -179,6 +184,7 @@ pub enum NetDeviceType {
     Null = 0x0000,
     Loopback = 0x0001,
     Ethernet = 0x0002,
+    Unknown,
 }
 
 impl NetDeviceType {
@@ -188,7 +194,7 @@ impl NetDeviceType {
             0 => NetDeviceType::Null,
             1 => NetDeviceType::Loopback,
             2 => NetDeviceType::Ethernet,
-            _ => NetDeviceType::Null,
+            _ => NetDeviceType::Unknown,
         }
     }
 }
@@ -199,6 +205,7 @@ impl fmt::Display for NetDeviceType {
             NetDeviceType::Null => "Null",
             NetDeviceType::Loopback => "Loopback",
             NetDeviceType::Ethernet => "Ethernet",
+            NetDeviceType::Unknown => "Unknown",
         };
         write!(f, "{}", s)
     }
@@ -269,20 +276,23 @@ impl NetDevice {
     }
 
     pub fn register(dev: NetDevice) {
+        println!("net device register DEV={}", dev.name);
         let mut net_devices = NET_DEVICES.lock();
         net_devices.items.push(dev);
     }
 
     pub fn open(&mut self) -> Result<(), NetDeviceError> {
         if self.is_up() {
+            eprintln!("device is already up DEV={}", self.name);
             return Err(NetDeviceError::new(NetDeviceErrorKind::AlreadyUp));
         }
         if (self.ops.open)(&self) == -1 {
-            eprintln!("[error] device={}", self.name);
+            eprintln!("open error DEV={}", self.name);
             return Err(NetDeviceError::new(NetDeviceErrorKind::OpenError));
         }
 
         self.flags = self.flags | NetDeviceFlag::Up;
+        println!("open device DEV={}", self.name);
         Ok(())
     }
 
@@ -291,7 +301,7 @@ impl NetDevice {
             return Err(NetDeviceError::new(NetDeviceErrorKind::AlreadyDown));
         }
         if (self.ops.close)(&self) == -1 {
-            eprintln!("[error] device={}", self.name);
+            eprintln!("close error DEV={}", self.name);
             return Err(NetDeviceError::new(NetDeviceErrorKind::CloseError));
         }
 
@@ -382,4 +392,6 @@ pub fn net_shutdown() -> Result<(), NetDeviceError> {
     Ok(())
 }
 
-pub fn net_init() {}
+pub fn net_init() {
+    ipv4::init();
+}

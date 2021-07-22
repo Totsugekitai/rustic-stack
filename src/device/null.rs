@@ -26,10 +26,10 @@ impl Null {
         0
     }
 
-    pub fn new_device() -> NetDevice {
+    pub fn new() -> NetDevice {
         NetDevice {
             name: String::from("null"),
-            device_type: NetDeviceType::Null as u16 & NetProtocolType::Ip as u16,
+            device_type: NetDeviceType::Null as u16 | NetProtocolType::Ip as u16,
             mtu: NULL_MTU,
             flags: 0,
             header_length: 0,
@@ -46,7 +46,7 @@ impl Null {
     }
 
     pub fn init() {
-        let null_dev = Null::new_device();
+        let null_dev = Null::new();
         NetDevice::register(null_dev);
     }
 }

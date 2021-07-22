@@ -13,14 +13,14 @@ pub struct Loopback();
 impl Loopback {
     pub fn transmit(
         dev: &NetDevice,
-        net_device_type: u16,
+        protocol_type: u16,
         data: *const u8,
         size: usize,
         dst: *mut u8,
     ) -> isize {
         println!(
-            "DEV={} DEVICE_TYPE={:04x} SIZE={}",
-            dev.name, net_device_type, size
+            "DEV={} PROTOCOL_TYPE={:04x} SIZE={}",
+            dev.name, protocol_type, size
         );
         unsafe { ptr::copy_nonoverlapping(data, dst, size) };
         for i in 0..size {
@@ -34,10 +34,10 @@ impl Loopback {
         size as isize
     }
 
-    pub fn new_device() -> NetDevice {
+    pub fn new() -> NetDevice {
         NetDevice {
             name: String::from("loopback"),
-            device_type: NetDeviceType::Loopback as u16 & NetProtocolType::Ip as u16,
+            device_type: NetDeviceType::Loopback as u16 | NetProtocolType::Ip as u16,
             mtu: LOOPBACK_MTU,
             flags: NetDeviceFlag::Loopback as u16,
             header_length: 0,
@@ -54,7 +54,7 @@ impl Loopback {
     }
 
     pub fn init() {
-        let loopback_dev = Loopback::new_device();
+        let loopback_dev = Loopback::new();
         NetDevice::register(loopback_dev);
     }
 }

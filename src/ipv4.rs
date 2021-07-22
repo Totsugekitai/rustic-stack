@@ -2,6 +2,8 @@ use std::convert::TryInto;
 use std::fmt;
 use std::num::ParseIntError;
 
+use crate::net::{NetDevice, NetProtocol, NetProtocolErrorKind, NetProtocolType};
+
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ipv4Address([u8; IPV4_LENGTH]);
@@ -132,3 +134,18 @@ pub enum Protocol {
 }
 
 pub fn handle(_packet: &Ipv4Packet) {}
+
+pub fn input(data: *const u8, size: usize, dev: &mut NetDevice) -> *mut u8 {
+    eprintln!("IP input DEV={} SIZE={} ", dev.name, size);
+    data as *mut u8
+}
+
+pub fn init() {
+    let r = NetProtocol::register(NetProtocolType::Ip as u16, input);
+    match r {
+        Ok(()) => (),
+        Err(e) => match e.kind {
+            NetProtocolErrorKind::AlreadyRegistered => (),
+        },
+    }
+}
