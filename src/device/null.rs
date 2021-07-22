@@ -1,7 +1,8 @@
 use std::u16;
 
 use crate::net::{
-    NetDevice, NetDeviceAddress, NetDeviceOps, NetDeviceType, HARDWARE_ADDRESS_LENGTH,
+    NetDevice, NetDeviceAddress, NetDeviceOps, NetDeviceType, NetProtocolType,
+    HARDWARE_ADDRESS_LENGTH,
 };
 
 const NULL_MTU: u16 = u16::MAX;
@@ -28,7 +29,7 @@ impl Null {
     pub fn new_device() -> NetDevice {
         NetDevice {
             name: String::from("null"),
-            device_type: NetDeviceType::Null,
+            device_type: NetDeviceType::Null as u16 & NetProtocolType::Ip as u16,
             mtu: NULL_MTU,
             flags: 0,
             header_length: 0,

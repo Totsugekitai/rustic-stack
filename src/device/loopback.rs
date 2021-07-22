@@ -2,7 +2,7 @@ use std::ptr;
 use std::u16;
 
 use crate::net::{
-    NetDevice, NetDeviceAddress, NetDeviceFlag, NetDeviceOps, NetDeviceType,
+    NetDevice, NetDeviceAddress, NetDeviceFlag, NetDeviceOps, NetDeviceType, NetProtocolType,
     HARDWARE_ADDRESS_LENGTH,
 };
 
@@ -18,20 +18,26 @@ impl Loopback {
         size: usize,
         dst: *mut u8,
     ) -> isize {
-        eprintln!(
-            "DEV={} TYPE={} SIZE={}",
-            dev.name,
-            NetDeviceType::from_u16(net_device_type),
-            size
+        println!(
+            "DEV={} DEVICE_TYPE={:04x} SIZE={}",
+            dev.name, net_device_type, size
         );
-        unsafe { ptr::copy(data, dst, size) };
+        unsafe { ptr::copy_nonoverlapping(data, dst, size) };
+        for i in 0..size {
+            // コピーの検査
+            unsafe {
+                if *((data as usize + i) as *const u8) != *((dst as usize + i) as *const u8) {
+                    return -1;
+                }
+            }
+        }
         size as isize
     }
 
     pub fn new_device() -> NetDevice {
         NetDevice {
             name: String::from("loopback"),
-            device_type: NetDeviceType::Loopback,
+            device_type: NetDeviceType::Loopback as u16 & NetProtocolType::Ip as u16,
             mtu: LOOPBACK_MTU,
             flags: NetDeviceFlag::Loopback as u16,
             header_length: 0,

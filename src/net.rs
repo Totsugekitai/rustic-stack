@@ -50,7 +50,7 @@ pub enum NetDeviceErrorKind {
 
 pub struct NetDevice {
     pub name: String,
-    pub device_type: NetDeviceType,
+    pub device_type: u16,
     pub mtu: u16,
     pub flags: u16,
     pub header_length: u16,
@@ -60,6 +60,7 @@ pub struct NetDevice {
     pub ops: NetDeviceOps,
 }
 
+#[derive(PartialEq, Eq)]
 #[repr(u16)]
 pub enum NetDeviceType {
     Null = 0x0000,
@@ -67,15 +68,9 @@ pub enum NetDeviceType {
     Ethernet = 0x0002,
 }
 
-#[repr(u16)]
-pub enum NetProtocolType {
-    Ip = 0x0800,
-    Arp = 0x0806,
-    Ipv6 = 0x86dd,
-}
-
 impl NetDeviceType {
     pub fn from_u16(u: u16) -> NetDeviceType {
+        let u = u & 0b11;
         match u {
             0 => NetDeviceType::Null,
             1 => NetDeviceType::Loopback,
@@ -95,6 +90,24 @@ impl fmt::Display for NetDeviceType {
         write!(f, "{}", s)
     }
 }
+
+#[repr(u16)]
+pub enum NetProtocolType {
+    Ip = 0x0800,
+    Arp = 0x0806,
+    Ipv6 = 0x86dd,
+}
+
+// impl NetProtocolType {
+//     pub fn from_u16(u: u16) -> NetProtocolType {
+//         let u = u & 0xfffe;
+//         match u {
+//             0x0800 => NetProtocolType::Ip,
+//             0x0806 => NetProtocolType::Arp,
+//             0x86dd => NetProtocolType::Ipv6,
+//         }
+//     }
+// }
 
 #[repr(u16)]
 pub enum NetDeviceFlag {
