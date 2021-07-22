@@ -1,30 +1,143 @@
 use std::fmt;
-use std::fs::{read_dir, read_link, read_to_string};
-use std::io;
 use std::ops;
-use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-fn read_mac_address(address_file: &Path) -> Result<String, io::Error> {
-    let mac_address = read_to_string(address_file)?;
-    Ok(mac_address)
+#[repr(u16)]
+pub enum NetProtocolType {
+    Ip = 0x0800,
+    Arp = 0x0806,
+    Ipv6 = 0x86dd,
+    Unknown,
 }
 
-pub fn get_mac_address_list() -> Result<Vec<String>, io::Error> {
-    let net_devices_root_dir = Path::new("/sys/class/net");
-    let entries = read_dir(net_devices_root_dir)?;
-    let mut address_vec = Vec::new();
-    for entry in entries {
-        let entry = entry?;
-
-        if let Ok(symlink) = read_link(entry.path()) {
-            let path = symlink.as_path();
-            let address_file_path = path.join("address");
-            let mac_address = read_mac_address(&address_file_path)?;
-            address_vec.push(mac_address);
+impl NetProtocolType {
+    pub fn from_u16(u: u16) -> NetProtocolType {
+        let u = u & 0xfffe;
+        match u {
+            0x0800 => NetProtocolType::Ip,
+            0x0806 => NetProtocolType::Arp,
+            0x86dd => NetProtocolType::Ipv6,
+            _ => NetProtocolType::Unknown,
         }
     }
-    Ok(address_vec)
+}
+
+impl fmt::Display for NetProtocolType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            NetProtocolType::Ip => "IPv4",
+            NetProtocolType::Arp => "ARP",
+            NetProtocolType::Ipv6 => "IPv6",
+            NetProtocolType::Unknown => "Unknown",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+pub struct LockableNetProtocols {
+    pub items: Arc<Mutex<Vec<NetProtocol>>>,
+}
+
+impl LockableNetProtocols {
+    pub fn new() -> Self {
+        LockableNetProtocols {
+            items: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub fn lock(&self) -> LockedNetProtocols<'_> {
+        LockedNetProtocols {
+            items: self.items.lock().unwrap(),
+        }
+    }
+}
+
+pub struct LockedNetProtocols<'a> {
+    pub items: MutexGuard<'a, Vec<NetProtocol>>,
+}
+
+impl<'a> LockedNetProtocols<'a> {
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut NetProtocol> {
+        self.items.iter_mut()
+    }
+
+    fn push(&mut self, protocol: NetProtocol) {
+        self.items.push(protocol);
+    }
+}
+
+lazy_static! {
+    pub static ref PROTOCOLS: LockableNetProtocols = LockableNetProtocols::new();
+}
+
+pub struct NetProtocolError {
+    _kind: NetProtocolErrorKind,
+}
+
+pub enum NetProtocolErrorKind {
+    AlreadyRegistered,
+}
+
+// type T is Protocol Type
+pub struct NetProtocol {
+    protocol_type: u16,
+    queue: Vec<NetProtocolQueueEntry>,
+    handler: fn(*const u8, usize, &mut NetDevice) -> *mut u8,
+}
+
+impl NetProtocol {
+    pub fn register(
+        protocol_type: u16,
+        handler: fn(*const u8, size: usize, dev: &mut NetDevice) -> *mut u8,
+    ) -> Result<(), NetProtocolError> {
+        {
+            let mut protocols = PROTOCOLS.lock();
+            for protocol in protocols.iter_mut() {
+                if protocol.protocol_type == protocol_type {
+                    panic!("protocol already registered TYPE={:04x}", protocol_type);
+                }
+            }
+            let protocol = NetProtocol {
+                protocol_type,
+                queue: Vec::new(),
+                handler,
+            };
+            protocols.push(protocol);
+        }
+        Ok(())
+    }
+
+    pub fn input_handler(
+        protocol_type: u16,
+        _data: *const u8,
+        size: usize,
+        dev: &'static NetDevice,
+    ) -> Result<(), NetProtocolError> {
+        {
+            let mut protocols = PROTOCOLS.lock();
+            for protocol in protocols.iter_mut() {
+                if protocol.protocol_type == protocol_type {
+                    protocol.queue.push(NetProtocolQueueEntry {
+                        _dev: dev,
+                        _size: size,
+                    });
+                }
+            }
+        }
+        println!(
+            "Queue pushed DEV={} TYPE={}:{:04x} SIZE={}",
+            dev.name,
+            NetProtocolType::from_u16(protocol_type),
+            protocol_type,
+            size
+        );
+        Ok(())
+    }
+}
+
+pub struct NetProtocolQueueEntry {
+    _dev: &'static NetDevice,
+    _size: usize,
 }
 
 pub const HARDWARE_ADDRESS_LENGTH: usize = 16;
@@ -90,24 +203,6 @@ impl fmt::Display for NetDeviceType {
         write!(f, "{}", s)
     }
 }
-
-#[repr(u16)]
-pub enum NetProtocolType {
-    Ip = 0x0800,
-    Arp = 0x0806,
-    Ipv6 = 0x86dd,
-}
-
-// impl NetProtocolType {
-//     pub fn from_u16(u: u16) -> NetProtocolType {
-//         let u = u & 0xfffe;
-//         match u {
-//             0x0800 => NetProtocolType::Ip,
-//             0x0806 => NetProtocolType::Arp,
-//             0x86dd => NetProtocolType::Ipv6,
-//         }
-//     }
-// }
 
 #[repr(u16)]
 pub enum NetDeviceFlag {

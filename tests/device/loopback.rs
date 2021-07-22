@@ -27,8 +27,8 @@ fn loopback() {
                     );
                     match r {
                         Ok(_) => {
-                            for i in test_dst {
-                                if i != test_value {
+                            for i in test_dst.iter() {
+                                if *i != test_value {
                                     panic!("loopback is invalid! VALUE={}", i);
                                 }
                             }
