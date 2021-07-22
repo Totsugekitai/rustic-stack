@@ -14,7 +14,7 @@ fn null() {
     let test_data: [u8; 8] = [0; 8];
     let test_dst: [u8; 8] = [0; 8];
 
-    for _ in 0..10 {
+    for _ in 0..3 {
         {
             let mut net_devices = NET_DEVICES.lock();
             for dev in net_devices.items.iter_mut() {
