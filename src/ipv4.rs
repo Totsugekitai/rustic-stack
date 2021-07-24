@@ -135,9 +135,8 @@ pub enum Protocol {
 
 pub fn handle(_packet: &Ipv4Packet) {}
 
-pub fn input(data: *const u8, size: usize, dev: &mut NetDevice) -> *mut u8 {
-    eprintln!("IP input DEV={} SIZE={} ", dev.name, size);
-    data as *mut u8
+pub fn input(data: &Vec<u8>, dev: &'static NetDevice) {
+    eprintln!("IP input DEV={} SIZE={} ", dev.name, data.len());
 }
 
 pub fn init() {

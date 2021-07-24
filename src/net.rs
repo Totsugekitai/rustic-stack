@@ -1,7 +1,11 @@
+use std::collections::VecDeque;
 use std::fmt;
-use std::ops;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, MutexGuard,
+};
 use std::thread;
+use std::time::Duration;
 
 use crate::ipv4;
 
@@ -81,17 +85,18 @@ pub enum NetProtocolErrorKind {
     AlreadyRegistered,
 }
 
-// type T is Protocol Type
+pub type ProtocolHandlerType = fn(&Vec<u8>, &'static NetDevice);
+
 pub struct NetProtocol {
     protocol_type: u16,
-    queue: Vec<NetProtocolQueueEntry>,
-    handler: fn(*const u8, usize, &mut NetDevice) -> *mut u8,
+    queue: Mutex<VecDeque<NetProtocolQueueEntry>>,
+    handler: ProtocolHandlerType,
 }
 
 impl NetProtocol {
     pub fn register(
         protocol_type: u16,
-        handler: fn(*const u8, usize, &mut NetDevice) -> *mut u8,
+        handler: ProtocolHandlerType,
     ) -> Result<(), NetProtocolError> {
         {
             let mut protocols = PROTOCOLS.lock();
@@ -105,7 +110,7 @@ impl NetProtocol {
             }
             let protocol = NetProtocol {
                 protocol_type,
-                queue: Vec::new(),
+                queue: Mutex::new(VecDeque::new()),
                 handler,
             };
             protocols.push(protocol);
@@ -115,7 +120,7 @@ impl NetProtocol {
 
     pub fn input_handler(
         protocol_type: u16,
-        _data: *const u8,
+        data: *const u8,
         size: usize,
         dev: &'static NetDevice,
     ) -> Result<(), NetProtocolError> {
@@ -123,10 +128,16 @@ impl NetProtocol {
             let mut protocols = PROTOCOLS.lock();
             for protocol in protocols.iter_mut() {
                 if protocol.protocol_type == protocol_type {
-                    protocol.queue.push(NetProtocolQueueEntry {
-                        _dev: dev,
-                        _size: size,
-                    });
+                    {
+                        let mut queue = protocol.queue.lock().unwrap();
+                        unsafe {
+                            let data = data as *mut u8;
+                            queue.push_back(NetProtocolQueueEntry {
+                                dev: dev,
+                                data: Vec::from_raw_parts(data, size, size),
+                            })
+                        };
+                    }
                 }
             }
         }
@@ -142,8 +153,8 @@ impl NetProtocol {
 }
 
 pub struct NetProtocolQueueEntry {
-    _dev: &'static NetDevice,
-    _size: usize,
+    dev: &'static NetDevice,
+    data: Vec<u8>,
 }
 
 pub const HARDWARE_ADDRESS_LENGTH: usize = 16;
@@ -221,48 +232,21 @@ pub enum NetDeviceFlag {
     NeedArp = 0x0100,
 }
 
-impl ops::BitAnd<u16> for NetDeviceFlag {
-    type Output = u16;
-
-    fn bitand(self, word: u16) -> u16 {
-        word & (self as u16)
-    }
-}
-
-impl ops::BitAnd<NetDeviceFlag> for u16 {
-    type Output = u16;
-
-    fn bitand(self, flag: NetDeviceFlag) -> u16 {
-        flag & (self as u16)
-    }
-}
-
-impl ops::BitOr<u16> for NetDeviceFlag {
-    type Output = u16;
-
-    fn bitor(self, word: u16) -> u16 {
-        word | (self as u16)
-    }
-}
-
-impl ops::BitOr<NetDeviceFlag> for u16 {
-    type Output = u16;
-
-    fn bitor(self, flag: NetDeviceFlag) -> u16 {
-        flag | (self as u16)
-    }
-}
-
 pub enum NetDeviceAddress {
     Peer([u8; HARDWARE_ADDRESS_LENGTH]),
     Broadcast([u8; HARDWARE_ADDRESS_LENGTH]),
 }
 
+pub type OpenFnPtr = fn(&NetDevice) -> isize;
+pub type CloseFnPtr = fn(&NetDevice) -> isize;
+pub type TransmitFnPtr = fn(&NetDevice, u16, *const u8, usize, *mut u8) -> isize;
+pub type PollFnPtr = fn(&NetDevice) -> isize;
+
 pub struct NetDeviceOps {
-    pub open: fn(&NetDevice) -> isize,
-    pub close: fn(&NetDevice) -> isize,
-    pub transmit: fn(&NetDevice, u16, *const u8, usize, *mut u8) -> isize,
-    pub poll: fn(&NetDevice) -> isize,
+    pub open: Option<OpenFnPtr>,
+    pub close: Option<CloseFnPtr>,
+    pub transmit: Option<TransmitFnPtr>,
+    pub poll: Option<PollFnPtr>,
 }
 
 impl NetDeviceOps {
@@ -273,7 +257,7 @@ impl NetDeviceOps {
 
 impl NetDevice {
     fn is_up(&self) -> bool {
-        self.flags & NetDeviceFlag::Up > 0
+        self.flags & NetDeviceFlag::Up as u16 > 0
     }
 
     pub fn register(dev: NetDevice) {
@@ -287,12 +271,14 @@ impl NetDevice {
             eprintln!("device is already up DEV={}", self.name);
             return Err(NetDeviceError::new(NetDeviceErrorKind::AlreadyUp));
         }
-        if (self.ops.open)(&self) == -1 {
-            eprintln!("open error DEV={}", self.name);
-            return Err(NetDeviceError::new(NetDeviceErrorKind::OpenError));
+        if let Some(open) = self.ops.open {
+            if open(&self) == -1 {
+                eprintln!("open error DEV={}", self.name);
+                return Err(NetDeviceError::new(NetDeviceErrorKind::OpenError));
+            }
         }
 
-        self.flags = self.flags | NetDeviceFlag::Up;
+        self.flags = self.flags | NetDeviceFlag::Up as u16;
         println!("open device DEV={}", self.name);
         Ok(())
     }
@@ -301,9 +287,11 @@ impl NetDevice {
         if !self.is_up() {
             return Err(NetDeviceError::new(NetDeviceErrorKind::AlreadyDown));
         }
-        if (self.ops.close)(&self) == -1 {
-            eprintln!("close error DEV={}", self.name);
-            return Err(NetDeviceError::new(NetDeviceErrorKind::CloseError));
+        if let Some(close) = self.ops.close {
+            if close(&self) == -1 {
+                eprintln!("close error DEV={}", self.name);
+                return Err(NetDeviceError::new(NetDeviceErrorKind::CloseError));
+            }
         }
 
         self.flags = self.flags & !(NetDeviceFlag::Up as u16);
@@ -330,9 +318,11 @@ impl NetDevice {
             return Err(NetDeviceError::new(NetDeviceErrorKind::DataSizeTooBig));
         }
 
-        if (self.ops.transmit)(self, net_device_type, data, size, dst) == -1 {
-            eprintln!("data transmit failed DEV={} SIZE={}", self.name, size);
-            return Err(NetDeviceError::new(NetDeviceErrorKind::TransmitError));
+        if let Some(transmit) = self.ops.transmit {
+            if transmit(self, net_device_type, data, size, dst) == -1 {
+                eprintln!("data transmit failed DEV={} SIZE={}", self.name, size);
+                return Err(NetDeviceError::new(NetDeviceErrorKind::TransmitError));
+            }
         }
         Ok(())
     }
@@ -377,12 +367,70 @@ lazy_static! {
     pub static ref NET_DEVICES: LockableNetDevices = LockableNetDevices::new();
 }
 
+pub struct LockableThreadHandle {
+    pub item: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
+}
+
+impl LockableThreadHandle {
+    pub fn new() -> Self {
+        LockableThreadHandle {
+            item: Arc::new(Mutex::new(Option::from(thread::spawn(|| {})))),
+        }
+    }
+
+    pub fn lock(&self) -> LockedThreadHandle<'_> {
+        LockedThreadHandle {
+            item: self.item.lock().unwrap(),
+        }
+    }
+}
+
+pub struct LockedThreadHandle<'a> {
+    pub item: MutexGuard<'a, Option<thread::JoinHandle<()>>>,
+}
+
+impl<'a> LockedThreadHandle<'a> {
+    fn join(&mut self) -> thread::Result<()> {
+        self.item.take().unwrap().join()
+    }
+}
+
+lazy_static! {
+    pub static ref THREAD: LockableThreadHandle = LockableThreadHandle::new();
+}
+
+static TERMINATE: AtomicBool = AtomicBool::new(false);
+
 pub fn net_thread() {
-    loop {
+    while !TERMINATE.load(Ordering::Acquire) {
         let mut count = 0;
         {
             let mut devices = NET_DEVICES.lock();
-            for dev in devices.iter_mut() {}
+            for dev in devices.iter_mut() {
+                if dev.is_up() {
+                    if let Some(poll) = dev.ops.poll {
+                        if poll(dev) != -1 {
+                            count += 1;
+                        }
+                    }
+                }
+            }
+        }
+        {
+            let mut protocols = PROTOCOLS.lock();
+            for protocol in protocols.iter_mut() {
+                {
+                    let mut queue = protocol.queue.lock().unwrap();
+                    let entry_option = queue.pop_front();
+                    if let Some(entry) = entry_option {
+                        let _ = (protocol.handler)(&entry.data, entry.dev);
+                        count += 1;
+                    }
+                }
+            }
+        }
+        if count == 0 {
+            thread::sleep(Duration::new(0, 1000_0000));
         }
     }
 }
@@ -392,6 +440,16 @@ pub fn net_run() -> Result<(), NetDeviceError> {
     for dev in net_devices.iter_mut() {
         dev.open()?;
     }
+
+    let handle = thread::spawn(|| {
+        net_thread();
+    });
+
+    {
+        let mut thread_handle = THREAD.lock();
+        *(thread_handle.item) = Option::from(handle);
+    }
+
     Ok(())
 }
 
@@ -401,20 +459,14 @@ pub fn net_shutdown() -> Result<(), NetDeviceError> {
         dev.close()?;
     }
 
-    let handle = thread::spawn(|| {
-        net_thread();
-    });
+    let _ = TERMINATE.compare_exchange(false, true, Ordering::Release, Ordering::Relaxed);
 
     {
-        let mut thread_handle = THREAD.lock().unwrap();
-        *thread_handle = handle;
+        let mut handle = THREAD.lock();
+        handle.join().unwrap();
     }
 
     Ok(())
-}
-
-lazy_static! {
-    pub static ref THREAD: Mutex<thread::JoinHandle<()>> = Mutex::new(thread::spawn(|| {}));
 }
 
 pub fn net_init() {

@@ -3,7 +3,7 @@ use std::u16;
 
 use crate::net::{
     NetDevice, NetDeviceAddress, NetDeviceFlag, NetDeviceOps, NetDeviceType, NetProtocolType,
-    HARDWARE_ADDRESS_LENGTH,
+    TransmitFnPtr, HARDWARE_ADDRESS_LENGTH,
 };
 
 const LOOPBACK_MTU: u16 = u16::MAX;
@@ -45,10 +45,10 @@ impl Loopback {
             hwaddr: [0; HARDWARE_ADDRESS_LENGTH],
             pb: NetDeviceAddress::Peer([0; HARDWARE_ADDRESS_LENGTH]),
             ops: NetDeviceOps {
-                transmit: Loopback::transmit,
-                open: NetDeviceOps::empty,
-                close: NetDeviceOps::empty,
-                poll: NetDeviceOps::empty,
+                transmit: Option::from(Loopback::transmit as TransmitFnPtr),
+                open: None,
+                close: None,
+                poll: None,
             },
         }
     }

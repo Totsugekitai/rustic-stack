@@ -1,7 +1,7 @@
 use std::u16;
 
 use crate::net::{
-    NetDevice, NetDeviceAddress, NetDeviceOps, NetDeviceType, NetProtocolType,
+    NetDevice, NetDeviceAddress, NetDeviceOps, NetDeviceType, NetProtocolType, TransmitFnPtr,
     HARDWARE_ADDRESS_LENGTH,
 };
 
@@ -37,10 +37,10 @@ impl Null {
             hwaddr: [0; HARDWARE_ADDRESS_LENGTH],
             pb: NetDeviceAddress::Peer([0; HARDWARE_ADDRESS_LENGTH]),
             ops: NetDeviceOps {
-                transmit: Null::transmit,
-                open: NetDeviceOps::empty,
-                close: NetDeviceOps::empty,
-                poll: NetDeviceOps::empty,
+                transmit: Option::from(Null::transmit as TransmitFnPtr),
+                open: None,
+                close: None,
+                poll: None,
             },
         }
     }
