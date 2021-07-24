@@ -1,6 +1,7 @@
 use std::fmt;
 use std::ops;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread;
 
 use crate::ipv4;
 
@@ -376,6 +377,16 @@ lazy_static! {
     pub static ref NET_DEVICES: LockableNetDevices = LockableNetDevices::new();
 }
 
+pub fn net_thread() {
+    loop {
+        let mut count = 0;
+        {
+            let mut devices = NET_DEVICES.lock();
+            for dev in devices.iter_mut() {}
+        }
+    }
+}
+
 pub fn net_run() -> Result<(), NetDeviceError> {
     let mut net_devices = NET_DEVICES.lock();
     for dev in net_devices.iter_mut() {
@@ -389,7 +400,21 @@ pub fn net_shutdown() -> Result<(), NetDeviceError> {
     for dev in net_devices.iter_mut() {
         dev.close()?;
     }
+
+    let handle = thread::spawn(|| {
+        net_thread();
+    });
+
+    {
+        let mut thread_handle = THREAD.lock().unwrap();
+        *thread_handle = handle;
+    }
+
     Ok(())
+}
+
+lazy_static! {
+    pub static ref THREAD: Mutex<thread::JoinHandle<()>> = Mutex::new(thread::spawn(|| {}));
 }
 
 pub fn net_init() {
