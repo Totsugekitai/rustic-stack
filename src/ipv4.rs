@@ -1,6 +1,7 @@
 use std::convert::TryInto;
 use std::fmt;
 use std::num::ParseIntError;
+use std::{io, io::Write};
 
 use crate::net::{NetDevice, NetProtocol, NetProtocolErrorKind, NetProtocolType};
 
@@ -32,39 +33,46 @@ impl Ipv4Address {
             });
         Ok(Ipv4Address(ipv4_address))
     }
+
+    pub fn from_u32(u: u32) -> Self {
+        Ipv4Address([
+            ((u >> 0) & 0xff) as u8,
+            ((u >> 8) & 0xff) as u8,
+            ((u >> 16) & 0xff) as u8,
+            ((u >> 24) & 0xff) as u8,
+        ])
+    }
 }
 
 #[repr(C, packed)]
-pub struct Ipv4Packet {
-    version_and_ihl: u8,
-    dscp_and_ecn: u8,
+pub struct Ipv4Header {
+    vhl: u8,
+    tos: u8,
     total_length: u16,
     id: u16,
-    flags_and_flagment_offset: u16,
+    offset: u16,
     time_to_live: u8,
     protocol: u8,
-    header_checksum: u16,
-    src_ip_address: u32,
-    dst_ip_address: u32,
-    option_and_padding: u32,
-    payload: Vec<u8>,
+    sum: u16,
+    src_ip_address: Ipv4Address,
+    dst_ip_address: Ipv4Address,
 }
 
-impl Ipv4Packet {
+impl Ipv4Header {
     pub fn version(&self) -> u8 {
-        self.version_and_ihl & 0b1111
+        self.vhl & 0b1111
     }
 
     pub fn header_length(&self) -> u8 {
-        (self.version_and_ihl >> 4) & 0b1111
+        (self.vhl >> 4) & 0b1111
     }
 
     pub fn dscp(&self) -> u8 {
-        self.dscp_and_ecn & 0b111111
+        self.tos & 0b111111
     }
 
     pub fn ecn(&self) -> u8 {
-        (self.dscp_and_ecn >> 6) & 0b11
+        (self.tos >> 6) & 0b11
     }
 
     pub fn packet_length(&self) -> u16 {
@@ -76,11 +84,11 @@ impl Ipv4Packet {
     }
 
     pub fn flags(&self) -> u16 {
-        self.flags_and_flagment_offset & 0b111
+        self.offset & 0b111
     }
 
     pub fn fragment_offset(&self) -> u16 {
-        self.flags_and_flagment_offset >> 3
+        self.offset >> 3
     }
 
     pub fn time_to_live(&self) -> u8 {
@@ -98,29 +106,11 @@ impl Ipv4Packet {
     }
 
     pub fn src_address(&self) -> Ipv4Address {
-        let ipv4_address_0 = ((self.src_ip_address >> 0) & 0xff) as u8;
-        let ipv4_address_1 = ((self.src_ip_address >> 8) & 0xff) as u8;
-        let ipv4_address_2 = ((self.src_ip_address >> 16) & 0xff) as u8;
-        let ipv4_address_3 = ((self.src_ip_address >> 24) & 0xff) as u8;
-        Ipv4Address([
-            ipv4_address_0,
-            ipv4_address_1,
-            ipv4_address_2,
-            ipv4_address_3,
-        ])
+        self.src_ip_address
     }
 
     pub fn dst_address(&self) -> Ipv4Address {
-        let ipv4_address_0 = ((self.dst_ip_address >> 0) & 0xff) as u8;
-        let ipv4_address_1 = ((self.dst_ip_address >> 8) & 0xff) as u8;
-        let ipv4_address_2 = ((self.dst_ip_address >> 16) & 0xff) as u8;
-        let ipv4_address_3 = ((self.dst_ip_address >> 24) & 0xff) as u8;
-        Ipv4Address([
-            ipv4_address_0,
-            ipv4_address_1,
-            ipv4_address_2,
-            ipv4_address_3,
-        ])
+        self.dst_ip_address
     }
 }
 
@@ -133,7 +123,25 @@ pub enum Protocol {
     Unimplement,
 }
 
-pub fn handle(_packet: &Ipv4Packet) {}
+pub fn dump(data: *const u8, size: usize) -> io::Result<()> {
+    let stderr = io::stderr();
+    let mut handle = stderr.lock();
+
+    let ipv4_hdr = unsafe { data.cast::<Ipv4Header>().as_ref().unwrap() };
+    let hlen = ipv4_hdr.header_length() << 2;
+
+    write!(handle, "IPv4 Header ==========")?;
+    write!(
+        handle,
+        "        vhl: 0x{:02x} [v: {}]",
+        ipv4_hdr.vhl,
+        ipv4_hdr.version(),
+    )?;
+    let _ = handle.flush();
+    Ok(())
+}
+
+pub fn handle(_packet: &Ipv4Header) {}
 
 pub fn input(data: &Vec<u8>, dev: &'static NetDevice) {
     eprintln!("IP input DEV={} SIZE={} ", dev.name, data.len());

@@ -3,7 +3,7 @@ use std::fmt;
 use std::num::ParseIntError;
 
 use crate::ipv4;
-use crate::ipv4::Ipv4Packet;
+use crate::ipv4::Ipv4Header;
 use crate::packet::Packet;
 
 pub const MAC_LENGTH: usize = 6;
@@ -109,14 +109,14 @@ impl Packet for EthernetPacket {
     }
 }
 
-pub fn handle(packet: &EthernetPacket) {
-    println!("Packet Type: {}", packet.get_type());
-    match packet.get_type() {
-        PacketType::Ipv4 => {
-            let ipv4 = packet.payload();
-            let ipv4: Ipv4Packet = unsafe { std::ptr::read(ipv4.as_ptr() as *const _) };
-            ipv4::handle(&ipv4);
-        }
-        _ => (),
-    }
-}
+// pub fn handle(packet: &EthernetPacket) {
+//     println!("Packet Type: {}", packet.get_type());
+//     match packet.get_type() {
+//         PacketType::Ipv4 => {
+//             let ipv4 = packet.payload();
+//             let ipv4: Ipv4Packet = unsafe { std::ptr::read(ipv4.as_ptr() as *const _) };
+//             ipv4::handle(&ipv4);
+//         }
+//         _ => (),
+//     }
+// }
