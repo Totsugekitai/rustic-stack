@@ -2,15 +2,25 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use rustic_stack::device::loopback::Loopback;
+use rustic_stack::ipv4::IpInterface;
 use rustic_stack::net::{
     net_init, net_run, net_shutdown, NetDeviceType, NetProtocolType, NET_DEVICES,
 };
+
+const LOOPBACK_IP_ADDRESS: &str = "127.0.0.1";
+const LOOPBACK_IP_NETMASK: &str = "255.0.0.0";
 
 #[test]
 fn loopback() {
     net_init();
 
-    Loopback::init();
+    let mut loopback_dev = Loopback::init();
+
+    let interface = IpInterface::alloc(LOOPBACK_IP_ADDRESS, LOOPBACK_IP_NETMASK);
+    if let None = interface {
+        panic!("IpInterface::alloc is failed");
+    }
+    let interface = IpInterface::register(interface.unwrap(), &loopback_dev);
 
     let _ = net_run();
 

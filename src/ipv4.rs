@@ -178,7 +178,7 @@ impl fmt::Display for Protocol {
 }
 
 pub struct LockableIpInterfaces {
-    pub items: Arc<Mutex<Vec<Option<&'static IpInterface>>>>,
+    pub items: Arc<Mutex<Vec<Box<IpInterface>>>>,
 }
 
 impl LockableIpInterfaces {
@@ -196,11 +196,11 @@ impl LockableIpInterfaces {
 }
 
 pub struct LockedIpInterfaces<'a> {
-    pub items: MutexGuard<'a, Vec<Option<&'static IpInterface>>>,
+    pub items: MutexGuard<'a, Vec<Box<IpInterface>>>,
 }
 
 impl<'a> LockedIpInterfaces<'a> {
-    fn iter(&self) -> impl Iterator<Item = &Option<&'static IpInterface>> {
+    fn iter(&self) -> impl Iterator<Item = &Box<IpInterface>> {
         self.items.iter()
     }
 
@@ -213,6 +213,7 @@ lazy_static! {
     pub static ref IP_INTERFACES: LockableIpInterfaces = LockableIpInterfaces::new();
 }
 
+#[derive(Clone)]
 pub struct IpInterface {
     pub net_interface: NetInterface,
     pub unicast: Ipv4Address,
@@ -222,7 +223,7 @@ pub struct IpInterface {
 
 impl IpInterface {
     pub fn alloc(unicast: &str, netmask: &str) -> Option<Box<Self>> {
-        let mut interface = Box::new(IpInterface::default());
+        let mut interface = IpInterface::default();
         interface.net_interface.family = NetInterfaceFamily::Ip;
         if let Ok(addr) = Ipv4Address::from_str(unicast) {
             interface.unicast = addr;
@@ -242,38 +243,35 @@ impl IpInterface {
             (interface.unicast.to_u32() & interface.netmask.to_u32()) | !interface.netmask.to_u32(),
         );
 
-        Some(interface)
+        Option::from(Box::new(interface))
     }
 
-    pub fn register(ip_interface: Option<&'static Self>, dev: &mut NetDevice) -> Result<(), ()> {
-        {
-            if let None = ip_interface {
-                return Err(());
-            }
-            let mut interfaces = IP_INTERFACES.lock();
-            interfaces.items.push(ip_interface);
-            if let Err(e) = dev.add_interface(NetInterfaceType::Ip(ip_interface.unwrap())) {
-                match e.kind {
-                    NetDeviceErrorKind::AlreadyRegistered => {
-                        return Ok(());
-                    }
-                    _ => {
-                        eprintln!("add interface is failed");
-                        return Err(());
-                    }
+    pub fn register(ip_interface: Box<Self>, dev: &mut NetDevice) -> Result<(), ()> {
+        let iface = ip_interface.clone();
+        if let Err(e) = dev.add_interface(NetInterfaceType::Ip(*ip_interface)) {
+            match e.kind {
+                NetDeviceErrorKind::AlreadyRegistered => {
+                    return Ok(());
+                }
+                _ => {
+                    eprintln!("add interface is failed");
+                    return Err(());
                 }
             }
+        }
+        {
+            let mut interfaces = IP_INTERFACES.lock();
+            interfaces.items.push(iface);
         }
 
         Ok(())
     }
 
-    pub fn select(address: Ipv4Address) -> Option<&'static IpInterface> {
+    pub fn select(address: Ipv4Address) -> Option<Box<IpInterface>> {
         let interfaces = IP_INTERFACES.lock();
         for entry in interfaces.iter() {
-            let entry = entry.unwrap();
             if entry.unicast == address {
-                return Some(entry);
+                return Some((*entry).clone());
             }
         }
         None

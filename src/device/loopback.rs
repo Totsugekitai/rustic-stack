@@ -54,8 +54,9 @@ impl Loopback {
         }
     }
 
-    pub fn init() {
+    pub fn init() -> NetDevice {
         let loopback_dev = Loopback::new();
-        NetDevice::register(loopback_dev);
+        NetDevice::register(&loopback_dev);
+        loopback_dev
     }
 }

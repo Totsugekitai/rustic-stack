@@ -190,7 +190,7 @@ pub struct NetDevice {
     pub hwaddr: [u8; HARDWARE_ADDRESS_LENGTH],
     pub pb: NetDeviceAddress,
     pub ops: NetDeviceOps,
-    pub interfaces: Vec<Option<NetInterfaceType>>,
+    pub interfaces: Vec<Option<Box<NetInterfaceType>>>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -263,7 +263,7 @@ impl NetDevice {
         self.flags & NetDeviceFlag::Up as u16 > 0
     }
 
-    pub fn register(dev: NetDevice) {
+    pub fn register(dev: &NetDevice) {
         println!("net device register DEV={}", dev.name);
         let mut net_devices = NET_DEVICES.lock();
         net_devices.items.push(dev);
@@ -340,6 +340,7 @@ impl NetDevice {
     pub fn add_interface(&mut self, interface: NetInterfaceType) -> Result<(), NetDeviceError> {
         for entry in &self.interfaces {
             let entry = entry.as_ref().unwrap();
+            let entry = entry.as_ref();
             match entry {
                 NetInterfaceType::Ip(entry) => match interface {
                     NetInterfaceType::Ip(_) => {
@@ -360,17 +361,19 @@ impl NetDevice {
                 }
             }
         }
-        self.interfaces.push(Some(interface));
+        self.interfaces.push(Some(Box::new(interface)));
         Ok(())
     }
 
     pub fn get_interface(&self, family: NetInterfaceFamily) -> Option<NetInterfaceType> {
         for entry in &self.interfaces {
-            let entry = entry.as_ref().unwrap();
-            match entry {
-                NetInterfaceType::Ip(entry) => {
-                    if entry.net_interface.family == family {
-                        return Some(NetInterfaceType::Ip(entry));
+            let entry_inner = entry.as_ref().unwrap();
+            let entry_inner = entry_inner.as_ref();
+            match entry_inner {
+                NetInterfaceType::Ip(entry_inner) => {
+                    if entry_inner.net_interface.family == family {
+                        let entry_inner = (*entry_inner).clone();
+                        return Some(NetInterfaceType::Ip(entry_inner));
                     }
                 }
                 _ => (),
@@ -380,6 +383,7 @@ impl NetDevice {
     }
 }
 
+#[derive(Clone)]
 pub struct NetInterface {
     pub dev: Option<&'static NetDevice>,
     pub family: NetInterfaceFamily,
@@ -394,12 +398,13 @@ impl Default for NetInterface {
     }
 }
 
+#[derive(Clone)]
 pub enum NetInterfaceType {
-    Ip(&'static ipv4::IpInterface),
+    Ip(ipv4::IpInterface),
     Unknown,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Clone)]
 #[repr(usize)]
 pub enum NetInterfaceFamily {
     Ip = 1,
