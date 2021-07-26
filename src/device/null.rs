@@ -42,6 +42,7 @@ impl Null {
                 close: None,
                 poll: None,
             },
+            interfaces: Vec::new(),
         }
     }
 

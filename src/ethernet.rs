@@ -2,8 +2,8 @@ use std::convert::TryInto;
 use std::fmt;
 use std::num::ParseIntError;
 
-use crate::ipv4;
-use crate::ipv4::Ipv4Header;
+// use crate::ipv4;
+// use crate::ipv4::Ipv4Header;
 use crate::packet::Packet;
 
 pub const MAC_LENGTH: usize = 6;

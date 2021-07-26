@@ -50,6 +50,7 @@ impl Loopback {
                 close: None,
                 poll: None,
             },
+            interfaces: Vec::new(),
         }
     }
 

@@ -160,12 +160,12 @@ pub struct NetProtocolQueueEntry {
 pub const HARDWARE_ADDRESS_LENGTH: usize = 16;
 
 pub struct NetDeviceError {
-    _kind: NetDeviceErrorKind,
+    pub kind: NetDeviceErrorKind,
 }
 
 impl NetDeviceError {
     pub fn new(kind: NetDeviceErrorKind) -> Self {
-        Self { _kind: kind }
+        Self { kind: kind }
     }
 }
 
@@ -176,6 +176,8 @@ pub enum NetDeviceErrorKind {
     CloseError,
     TransmitError,
     DataSizeTooBig,
+    AlreadyRegistered,
+    UnknownType,
 }
 
 pub struct NetDevice {
@@ -188,6 +190,7 @@ pub struct NetDevice {
     pub hwaddr: [u8; HARDWARE_ADDRESS_LENGTH],
     pub pb: NetDeviceAddress,
     pub ops: NetDeviceOps,
+    pub interfaces: Vec<Option<NetInterfaceType>>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -332,6 +335,95 @@ impl NetDevice {
             "DEV={} TYPE={} DATA_SIZE={}",
             self.name, net_device_type, size
         );
+    }
+
+    pub fn add_interface(&mut self, interface: NetInterfaceType) -> Result<(), NetDeviceError> {
+        for entry in &self.interfaces {
+            let entry = entry.as_ref().unwrap();
+            match entry {
+                NetInterfaceType::Ip(entry) => match interface {
+                    NetInterfaceType::Ip(_) => {
+                        eprintln!(
+                            "interface is already exists, DEV={}, FAMILY={}",
+                            self.name, entry.net_interface.family
+                        );
+                        return Err(NetDeviceError::new(NetDeviceErrorKind::AlreadyRegistered));
+                    }
+                    NetInterfaceType::Unknown => {
+                        eprintln!("Unknown Type");
+                        return Err(NetDeviceError::new(NetDeviceErrorKind::UnknownType));
+                    }
+                },
+                NetInterfaceType::Unknown => {
+                    eprintln!("Unknown NetInterfaceType");
+                    return Err(NetDeviceError::new(NetDeviceErrorKind::UnknownType));
+                }
+            }
+        }
+        self.interfaces.push(Some(interface));
+        Ok(())
+    }
+
+    pub fn get_interface(&self, family: NetInterfaceFamily) -> Option<NetInterfaceType> {
+        for entry in &self.interfaces {
+            let entry = entry.as_ref().unwrap();
+            match entry {
+                NetInterfaceType::Ip(entry) => {
+                    if entry.net_interface.family == family {
+                        return Some(NetInterfaceType::Ip(entry));
+                    }
+                }
+                _ => (),
+            }
+        }
+        None
+    }
+}
+
+pub struct NetInterface {
+    pub dev: Option<&'static NetDevice>,
+    pub family: NetInterfaceFamily,
+}
+
+impl Default for NetInterface {
+    fn default() -> Self {
+        Self {
+            dev: None,
+            family: NetInterfaceFamily::Unknown,
+        }
+    }
+}
+
+pub enum NetInterfaceType {
+    Ip(&'static ipv4::IpInterface),
+    Unknown,
+}
+
+#[derive(Eq, PartialEq)]
+#[repr(usize)]
+pub enum NetInterfaceFamily {
+    Ip = 1,
+    Ipv6 = 2,
+    Unknown,
+}
+
+impl NetInterfaceFamily {
+    pub fn from_usize(u: usize) -> NetInterfaceFamily {
+        match u {
+            1 => NetInterfaceFamily::Ip,
+            2 => NetInterfaceFamily::Ipv6,
+            _ => NetInterfaceFamily::Unknown,
+        }
+    }
+}
+
+impl fmt::Display for NetInterfaceFamily {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NetInterfaceFamily::Ip => write!(f, "IP"),
+            NetInterfaceFamily::Ipv6 => write!(f, "IPv6"),
+            NetInterfaceFamily::Unknown => write!(f, "Unknown"),
+        }
     }
 }
 

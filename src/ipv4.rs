@@ -1,9 +1,14 @@
 use std::convert::TryInto;
 use std::fmt;
 use std::num::ParseIntError;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::{io, io::Write};
 
-use crate::net::{NetDevice, NetProtocol, NetProtocolErrorKind, NetProtocolType};
+use crate::net::{
+    NetDevice, NetDeviceErrorKind, NetInterface, NetInterfaceFamily, NetInterfaceType, NetProtocol,
+    NetProtocolErrorKind, NetProtocolType,
+};
+use crate::utils::checksum16;
 
 pub const IP_HEADER_SIZE_MIN: u16 = 20;
 pub const IP_HEADER_SIZE_MAX: u16 = 60;
@@ -18,6 +23,8 @@ pub const IPV4_ADDRESS_SIZE: usize = 4;
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ipv4Address([u8; IPV4_ADDRESS_SIZE]);
+
+pub const IP_ADDRESS_BROADCAST: Ipv4Address = Ipv4Address([255; IPV4_ADDRESS_SIZE]);
 
 impl fmt::Display for Ipv4Address {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -49,6 +56,13 @@ impl Ipv4Address {
             ((u >> 16) & 0xff) as u8,
             ((u >> 24) & 0xff) as u8,
         ])
+    }
+
+    pub fn to_u32(&self) -> u32 {
+        ((self.0[3] as u32) << 24)
+            | ((self.0[2] as u32) << 16)
+            | ((self.0[1] as u32) << 8)
+            | ((self.0[0] as u32) << 0)
     }
 }
 
@@ -163,7 +177,121 @@ impl fmt::Display for Protocol {
     }
 }
 
-pub fn dump(data: *const u8, size: usize) -> io::Result<()> {
+pub struct LockableIpInterfaces {
+    pub items: Arc<Mutex<Vec<Option<&'static IpInterface>>>>,
+}
+
+impl LockableIpInterfaces {
+    pub fn new() -> Self {
+        LockableIpInterfaces {
+            items: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub fn lock(&self) -> LockedIpInterfaces<'_> {
+        LockedIpInterfaces {
+            items: self.items.lock().unwrap(),
+        }
+    }
+}
+
+pub struct LockedIpInterfaces<'a> {
+    pub items: MutexGuard<'a, Vec<Option<&'static IpInterface>>>,
+}
+
+impl<'a> LockedIpInterfaces<'a> {
+    fn iter(&self) -> impl Iterator<Item = &Option<&'static IpInterface>> {
+        self.items.iter()
+    }
+
+    // fn iter_mut(&mut self) -> impl Iterator<Item = &mut Option<&'static IpInterface>> {
+    //     self.items.iter_mut()
+    // }
+}
+
+lazy_static! {
+    pub static ref IP_INTERFACES: LockableIpInterfaces = LockableIpInterfaces::new();
+}
+
+pub struct IpInterface {
+    pub net_interface: NetInterface,
+    pub unicast: Ipv4Address,
+    pub netmask: Ipv4Address,
+    pub broadcast: Ipv4Address,
+}
+
+impl IpInterface {
+    pub fn alloc(unicast: &str, netmask: &str) -> Option<Box<Self>> {
+        let mut interface = Box::new(IpInterface::default());
+        interface.net_interface.family = NetInterfaceFamily::Ip;
+        if let Ok(addr) = Ipv4Address::from_str(unicast) {
+            interface.unicast = addr;
+        } else {
+            eprintln!("Invalid unicast IP address");
+            return None;
+        }
+
+        if let Ok(addr) = Ipv4Address::from_str(netmask) {
+            interface.netmask = addr;
+        } else {
+            eprintln!("Invalid netmask");
+            return None;
+        }
+
+        interface.broadcast = Ipv4Address::from_u32(
+            (interface.unicast.to_u32() & interface.netmask.to_u32()) | !interface.netmask.to_u32(),
+        );
+
+        Some(interface)
+    }
+
+    pub fn register(ip_interface: Option<&'static Self>, dev: &mut NetDevice) -> Result<(), ()> {
+        {
+            if let None = ip_interface {
+                return Err(());
+            }
+            let mut interfaces = IP_INTERFACES.lock();
+            interfaces.items.push(ip_interface);
+            if let Err(e) = dev.add_interface(NetInterfaceType::Ip(ip_interface.unwrap())) {
+                match e.kind {
+                    NetDeviceErrorKind::AlreadyRegistered => {
+                        return Ok(());
+                    }
+                    _ => {
+                        eprintln!("add interface is failed");
+                        return Err(());
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn select(address: Ipv4Address) -> Option<&'static IpInterface> {
+        let interfaces = IP_INTERFACES.lock();
+        for entry in interfaces.iter() {
+            let entry = entry.unwrap();
+            if entry.unicast == address {
+                return Some(entry);
+            }
+        }
+        None
+    }
+}
+
+impl Default for IpInterface {
+    fn default() -> Self {
+        Self {
+            net_interface: NetInterface::default(),
+            unicast: Ipv4Address::from_str("0.0.0.0").unwrap(),
+            netmask: Ipv4Address::from_str("0.0.0.0").unwrap(),
+            broadcast: Ipv4Address::from_str("0.0.0.0").unwrap(),
+        }
+    }
+}
+
+pub fn dump(data: *const u8, _size: usize) -> io::Result<()> {
     let stderr = io::stderr();
     let mut handle = stderr.lock();
 
@@ -234,6 +362,39 @@ pub fn input(data: &Vec<u8>, dev: &'static NetDevice) {
     }
     if ipv4_hdr.time_to_live() == 0 {
         eprintln!("Time exceeded (TTL=0)");
+        return;
+    }
+
+    if checksum16(
+        ipv4_hdr as *const Ipv4Header as *const u16,
+        ipv4_hdr.header_length() as u16,
+        0,
+    ) != 0
+    {
+        eprintln!("Checksum error");
+        return;
+    }
+
+    let interface = dev.get_interface(NetInterfaceFamily::Ip);
+    if let Some(interface) = interface {
+        match interface {
+            NetInterfaceType::Ip(ip_interface) => {
+                if ip_interface.unicast != ipv4_hdr.dst_address() {
+                    return;
+                }
+                if (ipv4_hdr.dst_address() != ip_interface.broadcast)
+                    && ipv4_hdr.dst_address() != IP_ADDRESS_BROADCAST
+                {}
+            }
+            NetInterfaceType::Unknown => {
+                return;
+            }
+        }
+    }
+
+    let offset = ipv4_hdr.offset();
+    if (offset & 0x2000 > 0) || (offset & 0x1fff > 0) {
+        eprintln!("fragment is not supported");
         return;
     }
 
