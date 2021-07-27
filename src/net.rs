@@ -190,7 +190,7 @@ pub struct NetDevice {
     pub hwaddr: [u8; HARDWARE_ADDRESS_LENGTH],
     pub pb: NetDeviceAddress,
     pub ops: NetDeviceOps,
-    pub interfaces: Vec<Option<Box<NetInterfaceType>>>,
+    pub interfaces: Vec<Box<NetInterfaceType>>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -252,18 +252,16 @@ pub struct NetDeviceOps {
     pub poll: Option<PollFnPtr>,
 }
 
-impl NetDeviceOps {
-    pub fn empty(_: &NetDevice) -> isize {
-        0
-    }
-}
-
 impl NetDevice {
     fn is_up(&self) -> bool {
         self.flags & NetDeviceFlag::Up as u16 > 0
     }
 
-    pub fn register(dev: &NetDevice) {
+    pub fn alloc() -> Box<Self> {
+        Box::new(NetDevice::default())
+    }
+
+    pub fn register(dev: &'static Box<NetDevice>) {
         println!("net device register DEV={}", dev.name);
         let mut net_devices = NET_DEVICES.lock();
         net_devices.items.push(dev);
@@ -339,7 +337,6 @@ impl NetDevice {
 
     pub fn add_interface(&mut self, interface: NetInterfaceType) -> Result<(), NetDeviceError> {
         for entry in &self.interfaces {
-            let entry = entry.as_ref().unwrap();
             let entry = entry.as_ref();
             match entry {
                 NetInterfaceType::Ip(entry) => match interface {
@@ -361,25 +358,46 @@ impl NetDevice {
                 }
             }
         }
-        self.interfaces.push(Some(Box::new(interface)));
+        self.interfaces.push(Box::new(interface));
         Ok(())
     }
 
     pub fn get_interface(&self, family: NetInterfaceFamily) -> Option<NetInterfaceType> {
         for entry in &self.interfaces {
-            let entry_inner = entry.as_ref().unwrap();
-            let entry_inner = entry_inner.as_ref();
-            match entry_inner {
-                NetInterfaceType::Ip(entry_inner) => {
-                    if entry_inner.net_interface.family == family {
-                        let entry_inner = (*entry_inner).clone();
-                        return Some(NetInterfaceType::Ip(entry_inner));
+            let entry = entry.as_ref();
+            match entry {
+                NetInterfaceType::Ip(entry) => {
+                    if entry.net_interface.family == family {
+                        let entry = (*entry).clone();
+                        return Some(NetInterfaceType::Ip(entry));
                     }
                 }
                 _ => (),
             }
         }
         None
+    }
+}
+
+impl Default for NetDevice {
+    fn default() -> Self {
+        Self {
+            name: String::from(""),
+            device_type: 0,
+            mtu: 0,
+            flags: 0,
+            header_length: 0,
+            address_length: 0,
+            hwaddr: [0; HARDWARE_ADDRESS_LENGTH],
+            pb: NetDeviceAddress::Peer([0; HARDWARE_ADDRESS_LENGTH]),
+            ops: NetDeviceOps {
+                open: None,
+                close: None,
+                transmit: None,
+                poll: None,
+            },
+            interfaces: Vec::new(),
+        }
     }
 }
 
@@ -433,7 +451,7 @@ impl fmt::Display for NetInterfaceFamily {
 }
 
 pub struct LockableNetDevices {
-    pub items: Arc<Mutex<Vec<NetDevice>>>,
+    pub items: Arc<Mutex<Vec<&'static Box<NetDevice>>>>,
 }
 
 impl LockableNetDevices {
@@ -451,11 +469,11 @@ impl LockableNetDevices {
 }
 
 pub struct LockedNetDevices<'a> {
-    pub items: MutexGuard<'a, Vec<NetDevice>>,
+    pub items: MutexGuard<'a, Vec<&'static Box<NetDevice>>>,
 }
 
 impl<'a> LockedNetDevices<'a> {
-    fn iter_mut(&mut self) -> impl Iterator<Item = &mut NetDevice> {
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut &'static Box<NetDevice>> {
         self.items.iter_mut()
     }
 }

@@ -34,8 +34,9 @@ impl Loopback {
         size as isize
     }
 
-    pub fn new() -> NetDevice {
-        NetDevice {
+    pub fn new() -> Box<NetDevice> {
+        let mut loopback = NetDevice::alloc();
+        *loopback = NetDevice {
             name: String::from("loopback"),
             device_type: NetDeviceType::Loopback as u16 | NetProtocolType::Ip as u16,
             mtu: LOOPBACK_MTU,
@@ -51,10 +52,11 @@ impl Loopback {
                 poll: None,
             },
             interfaces: Vec::new(),
-        }
+        };
+        loopback
     }
 
-    pub fn init() -> NetDevice {
+    pub fn init() -> Box<NetDevice> {
         let loopback_dev = Loopback::new();
         NetDevice::register(&loopback_dev);
         loopback_dev

@@ -26,8 +26,9 @@ impl Null {
         0
     }
 
-    pub fn new() -> NetDevice {
-        NetDevice {
+    pub fn new() -> Box<NetDevice> {
+        let mut null = NetDevice::alloc();
+        *null = NetDevice {
             name: String::from("null"),
             device_type: NetDeviceType::Null as u16 | NetProtocolType::Ip as u16,
             mtu: NULL_MTU,
@@ -43,11 +44,13 @@ impl Null {
                 poll: None,
             },
             interfaces: Vec::new(),
-        }
+        };
+        null
     }
 
-    pub fn init() {
+    pub fn init() -> Box<NetDevice> {
         let null_dev = Null::new();
-        NetDevice::register(null_dev);
+        NetDevice::register(&null_dev);
+        null_dev
     }
 }
